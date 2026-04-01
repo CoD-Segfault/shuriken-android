@@ -1,0 +1,40 @@
+<resources>
+    <style name="Theme.Shuriken" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:colorBackground">@color/background</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="android:textColorPrimary">@color/on_surface</item>
+        <item name="android:textColorSecondary">@color/on_surface_variant</item>
+        <item name="tabStyle">@style/Widget.Shuriken.TabLayout</item>
+    </style>
+
+    <style name="Widget.Shuriken.TabLayout" parent="Widget.MaterialComponents.TabLayout">
+        <item name="tabSelectedTextColor">@color/accent</item>
+        <item name="tabTextColor">@color/on_surface_variant</item>
+        <item name="tabIndicatorColor">@color/accent</item>
+        <item name="tabBackground">@color/surface</item>
+    </style>
+
+    <style name="Widget.Shuriken.Card" parent="Widget.MaterialComponents.CardView">
+        <item name="cardBackgroundColor">@color/surface_variant</item>
+        <item name="cardCornerRadius">8dp</item>
+        <item name="cardElevation">2dp</item>
+    </style>
+
+    <style name="TextAppearance.Shuriken.StatLabel" parent="TextAppearance.MaterialComponents.Caption">
+        <item name="android:textColor">@color/on_surface_variant</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <style name="TextAppearance.Shuriken.StatValue" parent="TextAppearance.MaterialComponents.Body1">
+        <item name="android:textColor">@color/on_surface</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">monospace</item>
+    </style>
+</resources>

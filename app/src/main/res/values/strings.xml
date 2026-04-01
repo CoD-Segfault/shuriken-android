@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">Shuriken</string>
+    <string name="tab_dashboard">Dashboard</string>
+    <string name="tab_nmea">NMEA Out</string>
+    <string name="tab_serial">Serial In</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="refresh_devices">Refresh Devices</string>
+    <string name="no_devices_found">No USB serial devices found</string>
+    <string name="select_port">Select Serial Port</string>
+    <string name="clear">Clear</string>
+    <string name="auto_scroll">Auto-scroll</string>
+    <string name="transmitting">Transmitting @ 5Hz</string>
+    <string name="not_transmitting">Not Transmitting</string>
+    <string name="location_source">Source</string>
+    <string name="latitude">Latitude</string>
+    <string name="longitude">Longitude</string>
+    <string name="altitude">Altitude</string>
+    <string name="speed">Speed</string>
+    <string name="bearing">Bearing</string>
+    <string name="accuracy">Accuracy</string>
+    <string name="satellites">Satellites</string>
+    <string name="hdop">HDOP</string>
+    <string name="fix_quality">Fix Quality</string>
+    <string name="last_update">Last Update</string>
+    <string name="usb_status">USB Status</string>
+    <string name="permission_rationale">Fine location permission is required to generate NMEA sentences.</string>
+</resources>

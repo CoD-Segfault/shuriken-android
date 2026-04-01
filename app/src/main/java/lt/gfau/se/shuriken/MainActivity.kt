@@ -1,0 +1,139 @@
+package lt.gfau.se.shuriken
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import lt.gfau.se.shuriken.databinding.ActivityMainBinding
+import lt.gfau.se.shuriken.serial.UsbSerialManager
+import lt.gfau.se.shuriken.ui.DeviceSelectDialogFragment
+import lt.gfau.se.shuriken.ui.MainPagerAdapter
+import lt.gfau.se.shuriken.viewmodel.MainViewModel
+import com.google.android.material.tabs.TabLayoutMediator
+import kotlinx.coroutines.launch
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivityMainBinding
+    private val viewModel: MainViewModel by viewModels()
+
+    private val locationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            results[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            viewModel.startLocation()
+        } else {
+            Toast.makeText(this, getString(R.string.permission_rationale), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        setSupportActionBar(binding.toolbar)
+
+        setupViewPager()
+        setupStatusBar()
+        checkAndRequestLocationPermissions()
+
+        if (intent?.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED") {
+            viewModel.refreshDevices()
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent?) {
+        super.onNewIntent(intent)
+        if (intent?.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED") {
+            viewModel.refreshDevices()
+            showDeviceSelectDialog()
+        }
+    }
+
+    private fun setupViewPager() {
+        binding.viewPager.adapter = MainPagerAdapter(this)
+        binding.viewPager.offscreenPageLimit = 2
+        TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, pos ->
+            tab.text = when (pos) { 0 -> "Dashboard"; 1 -> "NMEA Out"; else -> "Serial Console" }
+        }.attach()
+    }
+
+    private fun setupStatusBar() {
+        binding.btnRefreshDevices.setOnClickListener {
+            viewModel.refreshDevices()
+            val n = viewModel.availablePorts.value.size
+            Toast.makeText(this, "Found $n port(s)", Toast.LENGTH_SHORT).show()
+            if (n > 0) showDeviceSelectDialog()
+        }
+
+        binding.btnConnectDisconnect.setOnClickListener {
+            when (viewModel.connectionState.value) {
+                UsbSerialManager.ConnectionState.CONNECTED -> viewModel.disconnect()
+                else -> {
+                    viewModel.refreshDevices()
+                    val ports = viewModel.availablePorts.value
+                    when {
+                        ports.isEmpty() -> Toast.makeText(
+                            this, getString(R.string.no_devices_found), Toast.LENGTH_SHORT
+                        ).show()
+                        ports.size == 1 -> viewModel.connectToPort(ports[0])
+                        else -> showDeviceSelectDialog()
+                    }
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    viewModel.connectionState.collect { state ->
+                        val (dotRes, label, btnLabel) = when (state) {
+                            UsbSerialManager.ConnectionState.DISCONNECTED ->
+                                Triple(R.drawable.dot_disconnected, "Disconnected", "Connect")
+                            UsbSerialManager.ConnectionState.CONNECTING ->
+                                Triple(R.drawable.dot_connecting, "Connecting…", "Cancel")
+                            UsbSerialManager.ConnectionState.CONNECTED ->
+                                Triple(R.drawable.dot_connected, "Connected", "Disconnect")
+                            UsbSerialManager.ConnectionState.ERROR ->
+                                Triple(R.drawable.dot_disconnected, "Error — tap to retry", "Retry")
+                        }
+                        binding.connectionDot.setBackgroundResource(dotRes)
+                        binding.tvConnectionStatus.text = label
+                        binding.btnConnectDisconnect.text = btnLabel
+                    }
+                }
+                launch {
+                    viewModel.connectedPortLabel.collect { label ->
+                        if (label.isNotEmpty()) {
+                            binding.tvConnectionStatus.text = "Connected: $label"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun checkAndRequestLocationPermissions() {
+        val fine = Manifest.permission.ACCESS_FINE_LOCATION
+        val coarse = Manifest.permission.ACCESS_COARSE_LOCATION
+        if (ContextCompat.checkSelfPermission(this, fine) == PackageManager.PERMISSION_GRANTED) {
+            viewModel.startLocation()
+        } else {
+            locationPermissionLauncher.launch(arrayOf(fine, coarse))
+        }
+    }
+
+    private fun showDeviceSelectDialog() {
+        if (supportFragmentManager.findFragmentByTag(DeviceSelectDialogFragment.TAG) == null) {
+            DeviceSelectDialogFragment().show(supportFragmentManager, DeviceSelectDialogFragment.TAG)
+        }
+    }
+}

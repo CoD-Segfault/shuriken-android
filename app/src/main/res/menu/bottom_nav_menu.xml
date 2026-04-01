@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_dashboard"
+        android:icon="@android:drawable/ic_menu_compass"
+        android:title="@string/tab_dashboard" />
+    <item
+        android:id="@+id/nav_nmea"
+        android:icon="@android:drawable/ic_menu_send"
+        android:title="@string/tab_nmea" />
+    <item
+        android:id="@+id/nav_serial"
+        android:icon="@android:drawable/ic_menu_view"
+        android:title="@string/tab_serial" />
+</menu>
