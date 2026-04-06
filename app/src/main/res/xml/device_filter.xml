@@ -2,14 +2,6 @@
 <resources>
     <!-- CDC ACM (Communications Device Class) -->
     <usb-device class="2" subclass="2" protocol="1" />
-    <!-- CP210x -->
-    <usb-device vendor-id="4292" />
-    <!-- FTDI -->
-    <usb-device vendor-id="1027" />
-    <!-- CH340/CH341 -->
-    <usb-device vendor-id="6790" />
-    <!-- Prolific PL2303 -->
-    <usb-device vendor-id="1659" />
-    <!-- Arduino (CDC) -->
-    <usb-device vendor-id="9025" />
+    <!-- WiFi-Shuriken (CDC) -->
+    <usb-device vendor-id="2E8A" />
 </resources>

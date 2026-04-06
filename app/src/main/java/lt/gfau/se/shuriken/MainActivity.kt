@@ -1,7 +1,9 @@
 package lt.gfau.se.shuriken
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.usb.UsbManager
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +19,7 @@ import lt.gfau.se.shuriken.ui.DeviceSelectDialogFragment
 import lt.gfau.se.shuriken.ui.MainPagerAdapter
 import lt.gfau.se.shuriken.viewmodel.MainViewModel
 import com.google.android.material.tabs.TabLayoutMediator
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -45,16 +48,31 @@ class MainActivity : AppCompatActivity() {
         setupStatusBar()
         checkAndRequestLocationPermissions()
 
-        if (intent?.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED") {
-            viewModel.refreshDevices()
-        }
+        // Handle USB attachment on launch
+        handleUsbIntent(intent)
     }
 
-    override fun onNewIntent(intent: android.content.Intent?) {
+    override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        if (intent?.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED") {
-            viewModel.refreshDevices()
-            showDeviceSelectDialog()
+        setIntent(intent)
+        handleUsbIntent(intent)
+    }
+
+    private fun handleUsbIntent(intent: Intent?) {
+        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            lifecycleScope.launch {
+                // Wait briefly for the service to bind and devices to be enumerated
+                delay(500)
+                viewModel.refreshDevices()
+                delay(200)
+                
+                val ports = viewModel.availablePorts.value
+                if (ports.size == 1) {
+                    viewModel.connectToPort(ports[0])
+                } else if (ports.size > 1) {
+                    showDeviceSelectDialog()
+                }
+            }
         }
     }
 
