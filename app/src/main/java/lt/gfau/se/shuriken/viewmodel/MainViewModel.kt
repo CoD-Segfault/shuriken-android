@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import lt.gfau.se.shuriken.model.LocationData
@@ -25,6 +26,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var nmeaService: NmeaService? = null
     private var isBound = false
+    private var pendingStartLocation = false
 
     private val _connectionState = MutableStateFlow(UsbSerialManager.ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<UsbSerialManager.ConnectionState> = _connectionState.asStateFlow()
@@ -62,12 +64,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val s = binder.getService()
             nmeaService = s
             isBound = true
+            Log.d("MainViewModel", "Service connected")
             observeService(s)
+            if (pendingStartLocation) {
+                Log.d("MainViewModel", "Executing pending startLocation")
+                s.locationProvider.start()
+                pendingStartLocation = false
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             nmeaService = null
             isBound = false
+            Log.d("MainViewModel", "Service disconnected")
         }
     }
 
@@ -88,7 +97,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             launch { service.sentNmea.collect { nmeaUpdateChannel.send(it) } }
             launch {
                 service.usbSerialManager.receivedData.collect { portData ->
-                    // Corrected port order: Port 0 is Serial In
                     if (portData.portIndex == 0) {
                         serialUpdateChannel.send(portData.data)
                     }
@@ -136,7 +144,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startLocation() {
-        nmeaService?.locationProvider?.start()
+        val s = nmeaService
+        if (s != null) {
+            s.locationProvider.start()
+        } else {
+            Log.d("MainViewModel", "startLocation called before service bound, queueing...")
+            pendingStartLocation = true
+        }
     }
 
     fun refreshDevices() {
