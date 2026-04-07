@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,11 +28,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val viewModel: MainViewModel by viewModels()
 
-    private val locationPermissionLauncher = registerForActivityResult(
+    private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        if (results[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-            results[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+        val locationGranted = results[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                results[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        
+        if (locationGranted) {
             viewModel.startLocation()
         } else {
             Toast.makeText(this, getString(R.string.permission_rationale), Toast.LENGTH_LONG).show()
@@ -46,9 +49,8 @@ class MainActivity : AppCompatActivity() {
 
         setupViewPager()
         setupStatusBar()
-        checkAndRequestLocationPermissions()
+        checkAndRequestPermissions()
 
-        // Handle USB attachment on launch
         handleUsbIntent(intent)
     }
 
@@ -61,10 +63,13 @@ class MainActivity : AppCompatActivity() {
     private fun handleUsbIntent(intent: Intent?) {
         if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
             lifecycleScope.launch {
-                // Wait briefly for the service to bind and devices to be enumerated
-                delay(500)
-                viewModel.refreshDevices()
-                delay(200)
+                // Wait for service connection and initial enumeration
+                var retry = 0
+                while (viewModel.availablePorts.value.isEmpty() && retry < 10) {
+                    viewModel.refreshDevices()
+                    delay(300)
+                    retry++
+                }
                 
                 val ports = viewModel.availablePorts.value
                 if (ports.size == 1) {
@@ -88,7 +93,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnRefreshDevices.setOnClickListener {
             viewModel.refreshDevices()
             val n = viewModel.availablePorts.value.size
-            Toast.makeText(this, "Found $n port(s)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Found $n device(s)", Toast.LENGTH_SHORT).show()
             if (n > 0) showDeviceSelectDialog()
         }
 
@@ -139,13 +144,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkAndRequestLocationPermissions() {
-        val fine = Manifest.permission.ACCESS_FINE_LOCATION
-        val coarse = Manifest.permission.ACCESS_COARSE_LOCATION
-        if (ContextCompat.checkSelfPermission(this, fine) == PackageManager.PERMISSION_GRANTED) {
+    private fun checkAndRequestPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        val toRequest = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (toRequest.isEmpty()) {
             viewModel.startLocation()
         } else {
-            locationPermissionLauncher.launch(arrayOf(fine, coarse))
+            permissionLauncher.launch(toRequest.toTypedArray())
         }
     }
 

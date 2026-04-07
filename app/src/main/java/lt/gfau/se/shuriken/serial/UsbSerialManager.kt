@@ -15,12 +15,14 @@ import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.hoho.android.usbserial.driver.UsbSerialDriver
 import com.hoho.android.usbserial.util.SerialInputOutputManager
 import lt.gfau.se.shuriken.model.SerialDevicePort
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 class UsbSerialManager(private val context: Context) {
 
@@ -109,7 +111,6 @@ class UsbSerialManager(private val context: Context) {
         val prober = UsbSerialProber.getDefaultProber()
         val ports = mutableListOf<SerialDevicePort>()
         for (driver in prober.findAllDrivers(usbManager)) {
-            // Only add the first port of each driver to represent the device
             val port = driver.ports.firstOrNull() ?: continue
             ports += SerialDevicePort(
                 deviceName = driver.device.deviceName,
@@ -136,9 +137,6 @@ class UsbSerialManager(private val context: Context) {
             }
             
             val flags = when {
-                Build.VERSION.SDK_INT >= 34 -> {
-                    PendingIntent.FLAG_MUTABLE or 0x00001000 // FLAG_ALLOW_UNSAFE_IMPLICIT_INTENT
-                }
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
                     PendingIntent.FLAG_MUTABLE
                 }
@@ -223,9 +221,9 @@ class UsbSerialManager(private val context: Context) {
 
     // ── I/O ─────────────────────────────────────────────────────────────────
 
-    fun send(data: ByteArray, portIndex: Int = 0): Boolean {
-        val port = activePorts[portIndex] ?: return false
-        return try {
+    suspend fun send(data: ByteArray, portIndex: Int = 0): Boolean = withContext(Dispatchers.IO) {
+        val port = activePorts[portIndex] ?: return@withContext false
+        return@withContext try {
             port.write(data, 200)
             true
         } catch (e: Exception) {
