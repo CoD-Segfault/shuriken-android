@@ -16,17 +16,20 @@ import lt.gfau.se.shuriken.serial.UsbSerialManager
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private var nmeaService: NmeaService? = null
-    private var isBound = false
-    private var pendingStartLocation = false
+    sealed class Event {
+        object ShowDeviceSelection : Event()
+    }
 
     private val _connectionState = MutableStateFlow(UsbSerialManager.ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<UsbSerialManager.ConnectionState> = _connectionState.asStateFlow()
@@ -55,6 +58,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _txCount = MutableStateFlow(0L)
     val txCount: StateFlow<Long> = _txCount.asStateFlow()
 
+    private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 16)
+    val events: SharedFlow<Event> = _events.asSharedFlow()
+
+    private var nmeaService: NmeaService? = null
+    private var isBound = false
+    private var pendingStartLocation = false
+    private var autoConnectPending = false
+
     private val nmeaUpdateChannel = Channel<String>(capacity = 100, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val serialUpdateChannel = Channel<String>(capacity = 100, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
@@ -66,11 +77,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isBound = true
             Log.d("MainViewModel", "Service connected")
             observeService(s)
+            
+            s.usbSerialManager.enumerateDevices()
+
             if (pendingStartLocation) {
-                Log.d("MainViewModel", "Executing pending startLocation")
                 s.locationProvider.start()
                 pendingStartLocation = false
             }
+            checkAutoConnect()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -80,18 +94,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val intent = Intent(application, NmeaService::class.java)
+
     init {
-        val intent = Intent(application, NmeaService::class.java)
-        application.startForegroundService(intent)
-        application.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         startLogProcessors()
+    }
+
+    fun bindService() {
+        if (!isBound) {
+            getApplication<Application>().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        }
     }
 
     private fun observeService(service: NmeaService) {
         viewModelScope.launch {
             launch { service.locationProvider.locationData.collect { _locationData.value = it } }
             launch { service.locationProvider.sourceLabel.collect { _locationSource.value = it } }
-            launch { service.usbSerialManager.availablePorts.collect { _availablePorts.value = it } }
+            launch { 
+                service.usbSerialManager.availablePorts.collect { 
+                    _availablePorts.value = it 
+                    checkAutoConnect()
+                } 
+            }
             launch { service.usbSerialManager.connectionState.collect { _connectionState.value = it } }
             launch { service.usbSerialManager.connectedPortLabel.collect { _connectedPortLabel.value = it } }
             launch { service.sentNmea.collect { nmeaUpdateChannel.send(it) } }
@@ -111,9 +135,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val pendingSerial = mutableListOf<String>()
             
             while (isActive) {
-                delay(100) // Update UI at 10Hz max
+                delay(100) 
                 
-                // Drain NMEA channel
                 while (true) {
                     val msg = nmeaUpdateChannel.tryReceive().getOrNull() ?: break
                     pendingNmea.add(msg)
@@ -123,11 +146,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     current.addAll(pendingNmea)
                     while (current.size > 200) current.removeAt(0)
                     _nmeaLog.value = current
-                    _txCount.value += pendingNmea.size
                     pendingNmea.clear()
                 }
 
-                // Drain Serial channel
                 while (true) {
                     val msg = serialUpdateChannel.tryReceive().getOrNull() ?: break
                     pendingSerial.add(msg)
@@ -144,12 +165,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startLocation() {
+        val app = getApplication<Application>()
+        app.startForegroundService(intent)
+        bindService()
+
         val s = nmeaService
         if (s != null) {
             s.locationProvider.start()
         } else {
-            Log.d("MainViewModel", "startLocation called before service bound, queueing...")
             pendingStartLocation = true
+        }
+    }
+
+    fun setAutoConnectPending(pending: Boolean) {
+        autoConnectPending = pending
+        checkAutoConnect()
+    }
+
+    private fun checkAutoConnect() {
+        if (autoConnectPending && isBound) {
+            val ports = _availablePorts.value
+            if (ports.size == 1) {
+                connectToPort(ports[0])
+                autoConnectPending = false
+            } else if (ports.size > 1) {
+                _events.tryEmit(Event.ShowDeviceSelection)
+                autoConnectPending = false
+            }
         }
     }
 

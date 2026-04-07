@@ -5,7 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -64,7 +66,12 @@ class NmeaService : Service() {
     override fun onBind(intent: Intent): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, createNotification("Ready to transmit"))
+        val notification = createNotification("Ready to transmit")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
         return START_STICKY
     }
 
@@ -72,7 +79,7 @@ class NmeaService : Service() {
         if (nmeaJob?.isActive == true) return
         lastTxRealTime = 0L
         
-        startForeground(NOTIFICATION_ID, createNotification("Transmitting NMEA..."))
+        updateNotification("Transmitting NMEA...")
 
         nmeaJob = serviceScope.launch {
             // Heartbeat loop (1Hz minimum)
@@ -102,7 +109,7 @@ class NmeaService : Service() {
     fun stopTransmitting() {
         nmeaJob?.cancel()
         nmeaJob = null
-        startForeground(NOTIFICATION_ID, createNotification("Ready to transmit"))
+        updateNotification("Ready to transmit")
     }
 
     private suspend fun transmitLocation(loc: LocationData, forceCurrentTime: Boolean = false) {
@@ -112,6 +119,11 @@ class NmeaService : Service() {
             _sentNmea.emit(sentence.trimEnd())
         }
         lastTxRealTime = System.currentTimeMillis()
+    }
+
+    private fun updateNotification(content: String) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, createNotification(content))
     }
 
     private fun createNotification(content: String): Notification {
