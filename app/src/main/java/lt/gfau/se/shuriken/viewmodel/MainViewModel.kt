@@ -1,12 +1,15 @@
 package lt.gfau.se.shuriken.viewmodel
 
+import android.Manifest
 import android.app.Application
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.os.IBinder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import lt.gfau.se.shuriken.model.LocationData
@@ -63,7 +66,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var nmeaService: NmeaService? = null
     private var isBound = false
-    private var pendingStartLocation = false
     private var autoConnectPending = false
 
     private val nmeaUpdateChannel = Channel<String>(capacity = 100, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -79,11 +81,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             observeService(s)
             
             s.usbSerialManager.enumerateDevices()
-
-            if (pendingStartLocation) {
-                s.locationProvider.start()
-                pendingStartLocation = false
-            }
             checkAutoConnect()
         }
 
@@ -116,7 +113,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     checkAutoConnect()
                 } 
             }
-            launch { service.usbSerialManager.connectionState.collect { _connectionState.value = it } }
+            launch {
+                service.usbSerialManager.connectionState.collect {
+                    _connectionState.value = it
+                    if (it != UsbSerialManager.ConnectionState.CONNECTED) {
+                        _isTransmitting.value = false
+                    }
+                }
+            }
             launch { service.usbSerialManager.connectedPortLabel.collect { _connectedPortLabel.value = it } }
             launch { service.sentNmea.collect { nmeaUpdateChannel.send(it) } }
             launch {
@@ -164,19 +168,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startLocation() {
-        val app = getApplication<Application>()
-        app.startForegroundService(intent)
-        bindService()
-
-        val s = nmeaService
-        if (s != null) {
-            s.locationProvider.start()
-        } else {
-            pendingStartLocation = true
-        }
-    }
-
     fun setAutoConnectPending(pending: Boolean) {
         autoConnectPending = pending
         checkAutoConnect()
@@ -202,14 +193,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun connectToPort(port: SerialDevicePort) {
         nmeaService?.usbSerialManager?.connect(port) { success ->
             if (success) {
-                nmeaService?.startTransmitting()
-                _isTransmitting.value = true
+                val app = getApplication<Application>()
+                val hasFineLocation = ContextCompat.checkSelfPermission(
+                    app,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+
+                if (hasFineLocation) {
+                    app.startForegroundService(intent)
+                    nmeaService?.startConnectedSession()
+                    _isTransmitting.value = true
+                } else {
+                    Log.w("MainViewModel", "USB connected without location permission; session not started")
+                    _isTransmitting.value = false
+                }
             }
         }
     }
 
     fun disconnect() {
-        nmeaService?.stopTransmitting()
+        nmeaService?.stopConnectedSession()
         nmeaService?.usbSerialManager?.disconnect()
         _isTransmitting.value = false
     }

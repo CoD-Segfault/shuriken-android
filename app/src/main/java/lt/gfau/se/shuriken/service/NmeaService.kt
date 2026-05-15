@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -42,6 +43,7 @@ class NmeaService : Service() {
     
     private var nmeaJob: Job? = null
     private var lastTxRealTime = 0L
+    private var isForegroundSessionActive = false
 
     lateinit var locationProvider: LocationProvider
     lateinit var usbSerialManager: UsbSerialManager
@@ -61,6 +63,14 @@ class NmeaService : Service() {
         usbSerialManager = UsbSerialManager(this)
         usbSerialManager.register()
         createNotificationChannel()
+
+        serviceScope.launch {
+            usbSerialManager.connectionState.collectLatest { state ->
+                if (state != UsbSerialManager.ConnectionState.CONNECTED) {
+                    stopConnectedSession()
+                }
+            }
+        }
     }
 
     override fun onBind(intent: Intent): IBinder = binder
@@ -72,7 +82,24 @@ class NmeaService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        isForegroundSessionActive = true
         return START_STICKY
+    }
+
+    fun startConnectedSession() {
+        locationProvider.start()
+        startTransmitting()
+    }
+
+    fun stopConnectedSession() {
+        stopTransmitting()
+        locationProvider.stop()
+
+        if (isForegroundSessionActive) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            isForegroundSessionActive = false
+        }
     }
 
     fun startTransmitting() {
@@ -107,9 +134,12 @@ class NmeaService : Service() {
     }
 
     fun stopTransmitting() {
+        val wasTransmitting = nmeaJob?.isActive == true
         nmeaJob?.cancel()
         nmeaJob = null
-        updateNotification("Ready to transmit")
+        if (isForegroundSessionActive && wasTransmitting) {
+            updateNotification("Ready to transmit")
+        }
     }
 
     private suspend fun transmitLocation(loc: LocationData, forceCurrentTime: Boolean = false) {
@@ -155,6 +185,7 @@ class NmeaService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        locationProvider.stop()
         stopTransmitting()
         usbSerialManager.unregister()
         serviceScope.cancel()

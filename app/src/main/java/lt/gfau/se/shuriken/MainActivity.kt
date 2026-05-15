@@ -34,11 +34,10 @@ class MainActivity : AppCompatActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
+        val requestedFineLocation = results.containsKey(Manifest.permission.ACCESS_FINE_LOCATION)
         val fineLocationGranted = results[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        
-        if (fineLocationGranted) {
-            viewModel.startLocation()
-        } else {
+
+        if (requestedFineLocation && !fineLocationGranted) {
             Toast.makeText(this, "Precise location is required for NMEA accuracy.", Toast.LENGTH_LONG).show()
         }
     }
@@ -56,6 +55,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
+        viewModel.bindService()
         setupViewPager()
         setupStatusBar()
         checkAndRequestPermissions()
@@ -166,7 +166,6 @@ class MainActivity : AppCompatActivity() {
         val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
         if (hasFine) {
-            viewModel.startLocation()
             // Still check if we need to request notification permission on API 33+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val hasNotifications = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED

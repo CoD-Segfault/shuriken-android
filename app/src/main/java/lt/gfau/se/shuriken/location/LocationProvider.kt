@@ -39,6 +39,7 @@ class LocationProvider(private val context: Context) {
     private val _sourceLabel = MutableStateFlow("none")
     val sourceLabel: StateFlow<String> = _sourceLabel.asStateFlow()
 
+    @Volatile private var isStarted = false
     @Volatile private var lastPublishedTimestamp: Long = 0L
     @Volatile private var usedSatellites: Int = 0
     @Volatile private var hdop: Float = 9.9f
@@ -111,7 +112,10 @@ class LocationProvider(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun start() {
+        if (isStarted) return
+
         val looper = Looper.getMainLooper()
 
         if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -130,12 +134,20 @@ class LocationProvider(private val context: Context) {
             .setMaxUpdateDelayMillis(0L)
             .build()
         fusedClient.requestLocationUpdates(request, fusedCallback, looper)
+        isStarted = true
     }
 
+    @Synchronized
     fun stop() {
+        if (!isStarted) return
+
         locationManager.removeUpdates(gpsListener)
-        locationManager.unregisterGnssStatusCallback(gnssStatusCallback)
+        runCatching { locationManager.unregisterGnssStatusCallback(gnssStatusCallback) }
         fusedClient.removeLocationUpdates(fusedCallback)
+        isStarted = false
         lastPublishedTimestamp = 0L
+        usedSatellites = 0
+        hdop = 9.9f
+        _sourceLabel.value = "none"
     }
 }
