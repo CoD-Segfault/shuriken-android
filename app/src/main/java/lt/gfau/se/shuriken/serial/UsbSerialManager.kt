@@ -9,12 +9,15 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.hoho.android.usbserial.driver.UsbSerialDriver
 import com.hoho.android.usbserial.util.SerialInputOutputManager
 import lt.gfau.se.shuriken.model.SerialDevicePort
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 class UsbSerialManager(private val context: Context) {
 
@@ -37,6 +41,7 @@ class UsbSerialManager(private val context: Context) {
     data class PortData(val portIndex: Int, val data: String)
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val _availablePorts = MutableStateFlow<List<SerialDevicePort>>(emptyList())
     val availablePorts: StateFlow<List<SerialDevicePort>> = _availablePorts.asStateFlow()
@@ -44,17 +49,29 @@ class UsbSerialManager(private val context: Context) {
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    private val _receivedData = MutableSharedFlow<PortData>(replay = 0, extraBufferCapacity = 256)
+    // Console rendering is best-effort. Never let a paused or slow UI collector
+    // back up the USB reader; retain the newest data so the display recovers.
+    private val _receivedData = MutableSharedFlow<PortData>(
+        replay = 0,
+        extraBufferCapacity = 256,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val receivedData: SharedFlow<PortData> = _receivedData.asSharedFlow()
+
+    private val _consoleBytesReceived = MutableStateFlow(0L)
+    val consoleBytesReceived: StateFlow<Long> = _consoleBytesReceived.asStateFlow()
 
     private val _connectedPortLabel = MutableStateFlow("")
     val connectedPortLabel: StateFlow<String> = _connectedPortLabel.asStateFlow()
 
     var baudRate: Int = DEFAULT_BAUD_RATE
 
-    private val activePorts = mutableMapOf<Int, UsbSerialPort>()
-    private var activeConnection: UsbDeviceConnection? = null
+    private val activePorts = ConcurrentHashMap<Int, UsbSerialPort>()
+    // requestWait() receives completions for the whole connection. Independent
+    // CDC readers must not compete for completions on a shared connection.
+    private val activeConnections = mutableMapOf<Int, UsbDeviceConnection>()
     private val ioManagers = mutableMapOf<Int, SerialInputOutputManager>()
+    @Volatile private var sessionGeneration = 0L
 
     private var pendingPort: SerialDevicePort? = null
     private var pendingCallback: ((Boolean) -> Unit)? = null
@@ -101,6 +118,7 @@ class UsbSerialManager(private val context: Context) {
     }
 
     fun unregister() {
+        disconnect()
         runCatching { context.unregisterReceiver(permissionReceiver) }
         runCatching { context.unregisterReceiver(detachReceiver) }
     }
@@ -154,52 +172,50 @@ class UsbSerialManager(private val context: Context) {
         disconnect()
         _connectionState.value = ConnectionState.CONNECTING
         
-        val connection = usbManager.openDevice(driver.device)
-        if (connection == null) {
-            _connectionState.value = ConnectionState.ERROR
-            onResult?.invoke(false)
-            return
-        }
-        
-        activeConnection = connection
-        var anyPortOpened = false
-        
+        _consoleBytesReceived.value = 0L
+        val generation = sessionGeneration
+
         try {
+            check(driver.ports.isNotEmpty()) { "Device has no serial ports" }
             for ((idx, port) in driver.ports.withIndex()) {
-                try {
-                    port.open(connection)
-                    port.setParameters(baudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
-                    port.dtr = true
-                    port.rts = true
-                    activePorts[idx] = port
-                    
-                    val ioManager = SerialInputOutputManager(port, object : SerialInputOutputManager.Listener {
-                        override fun onNewData(data: ByteArray) {
-                            _receivedData.tryEmit(PortData(idx, String(data, Charsets.ISO_8859_1)))
+                val connection = usbManager.openDevice(driver.device)
+                    ?: error("Could not open USB connection for port $idx")
+                activeConnections[idx] = connection
+                port.open(connection)
+                activePorts[idx] = port
+                port.setParameters(baudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+                port.dtr = true
+                port.rts = true
+
+                val ioManager = SerialInputOutputManager(port, object : SerialInputOutputManager.Listener {
+                    override fun onNewData(data: ByteArray) {
+                        if (sessionGeneration != generation) return
+                        if (idx == 0) {
+                            _consoleBytesReceived.value += data.size
                         }
-                        override fun onRunError(e: Exception) {
-                            Log.e(TAG, "Error on port $idx", e)
+                        _receivedData.tryEmit(PortData(idx, String(data, Charsets.ISO_8859_1)))
+                    }
+                    override fun onRunError(e: Exception) {
+                        Log.e(TAG, "Error on port $idx", e)
+                        // Release DTR if a reader dies. The connection identity
+                        // prevents delayed errors from closing a newer session.
+                        mainHandler.post {
+                            if (activeConnections[idx] === connection) {
+                                disconnect()
+                                _connectionState.value = ConnectionState.ERROR
+                            }
                         }
-                    })
-                    ioManagers[idx] = ioManager
-                    ioManager.start()
-                    anyPortOpened = true
-                    Log.d(TAG, "Opened port $idx")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to open port $idx", e)
-                }
+                    }
+                })
+                ioManagers[idx] = ioManager
+                ioManager.start()
+                Log.d(TAG, "Opened port $idx on its own USB connection")
             }
-            
-            if (anyPortOpened) {
-                _connectionState.value = ConnectionState.CONNECTED
-                _connectedPortLabel.value = driver.device.deviceName
-                onResult?.invoke(true)
-            } else {
-                connection.close()
-                activeConnection = null
-                _connectionState.value = ConnectionState.ERROR
-                onResult?.invoke(false)
-            }
+            // A partly opened device is not a working session: Console must be
+            // drained as well as NMEA being writable.
+            _connectionState.value = ConnectionState.CONNECTED
+            _connectedPortLabel.value = driver.device.deviceName
+            onResult?.invoke(true)
         } catch (e: Exception) {
             Log.e(TAG, "Exception during port opening", e)
             disconnect()
@@ -209,12 +225,21 @@ class UsbSerialManager(private val context: Context) {
     }
 
     fun disconnect() {
+        sessionGeneration++
+        // Invalidate callbacks before closing requests; close can wake readers
+        // with errors that must not tear down a subsequent connection.
+        val ports = activePorts.values.toList()
+        activePorts.clear()
+        val connections = activeConnections.values.toList()
+        activeConnections.clear()
         for (iom in ioManagers.values) iom.stop()
         ioManagers.clear()
-        for (port in activePorts.values) runCatching { port.close() }
-        activePorts.clear()
-        runCatching { activeConnection?.close() }
-        activeConnection = null
+        for (port in ports) {
+            runCatching { port.dtr = false }
+            runCatching { port.rts = false }
+            runCatching { port.close() }
+        }
+        for (connection in connections) runCatching { connection.close() }
         _connectionState.value = ConnectionState.DISCONNECTED
         _connectedPortLabel.value = ""
     }

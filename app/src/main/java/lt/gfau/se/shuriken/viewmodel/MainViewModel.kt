@@ -30,6 +30,12 @@ import kotlinx.coroutines.launch
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        // USB reads arrive in arbitrarily sized chunks. Cap retained Console
+        // text by characters rather than chunk count so rendering stays bounded.
+        private const val SERIAL_LOG_MAX_CHARS = 64 * 1024
+    }
+
     sealed class Event {
         object ShowDeviceSelection : Event()
     }
@@ -57,6 +63,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _serialInputLog = MutableStateFlow<List<String>>(emptyList())
     val serialInputLog: StateFlow<List<String>> = _serialInputLog.asStateFlow()
+
+    private val _consoleBytesReceived = MutableStateFlow(0L)
+    val consoleBytesReceived: StateFlow<Long> = _consoleBytesReceived.asStateFlow()
 
     private val _txCount = MutableStateFlow(0L)
     val txCount: StateFlow<Long> = _txCount.asStateFlow()
@@ -122,11 +131,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             launch { service.usbSerialManager.connectedPortLabel.collect { _connectedPortLabel.value = it } }
+            launch { service.usbSerialManager.consoleBytesReceived.collect { _consoleBytesReceived.value = it } }
             launch { service.sentNmea.collect { nmeaUpdateChannel.send(it) } }
             launch {
                 service.usbSerialManager.receivedData.collect { portData ->
                     if (portData.portIndex == 0) {
-                        serialUpdateChannel.send(portData.data)
+                        // Serial rendering is best-effort. The USB reader must
+                        // never wait for this bounded UI-log buffer.
+                        serialUpdateChannel.trySend(portData.data)
                     }
                 }
             }
@@ -160,7 +172,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (pendingSerial.isNotEmpty()) {
                     val current = _serialInputLog.value.toMutableList()
                     current.addAll(pendingSerial)
-                    while (current.size > 500) current.removeAt(0)
+                    var retainedChars = current.sumOf { it.length }
+                    while (retainedChars > SERIAL_LOG_MAX_CHARS && current.isNotEmpty()) {
+                        val excess = retainedChars - SERIAL_LOG_MAX_CHARS
+                        val oldest = current.first()
+                        if (oldest.length <= excess) {
+                            retainedChars -= current.removeAt(0).length
+                        } else {
+                            current[0] = oldest.substring(excess)
+                            retainedChars -= excess
+                        }
+                    }
                     _serialInputLog.value = current
                     pendingSerial.clear()
                 }
