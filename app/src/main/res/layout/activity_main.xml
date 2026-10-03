@@ -26,6 +26,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@color/surface"
+            app:tabMode="auto"
             app:tabIndicatorColor="@color/accent"
             app:tabSelectedTextColor="@color/accent"
             app:tabTextColor="@color/on_surface_variant" />

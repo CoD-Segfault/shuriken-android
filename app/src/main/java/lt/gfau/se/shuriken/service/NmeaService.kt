@@ -17,6 +17,7 @@ import lt.gfau.se.shuriken.R
 import lt.gfau.se.shuriken.location.LocationProvider
 import lt.gfau.se.shuriken.model.LocationData
 import lt.gfau.se.shuriken.nmea.NmeaGenerator
+import lt.gfau.se.shuriken.mtp.MtpFileManager
 import lt.gfau.se.shuriken.serial.UsbSerialManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,7 @@ class NmeaService : Service() {
 
     lateinit var locationProvider: LocationProvider
     lateinit var usbSerialManager: UsbSerialManager
+    lateinit var mtpFileManager: MtpFileManager
 
     private val _sentNmea = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val sentNmea: SharedFlow<String> = _sentNmea.asSharedFlow()
@@ -60,7 +62,8 @@ class NmeaService : Service() {
     override fun onCreate() {
         super.onCreate()
         locationProvider = LocationProvider(this)
-        usbSerialManager = UsbSerialManager(this)
+        mtpFileManager = MtpFileManager(this)
+        usbSerialManager = UsbSerialManager(this, mtpFileManager::setDevice)
         usbSerialManager.register()
         createNotificationChannel()
 
@@ -188,6 +191,7 @@ class NmeaService : Service() {
         locationProvider.stop()
         stopTransmitting()
         usbSerialManager.unregister()
+        mtpFileManager.close()
         serviceScope.cancel()
     }
 }

@@ -94,7 +94,13 @@ class MainActivity : AppCompatActivity() {
         binding.viewPager.adapter = MainPagerAdapter(this)
         binding.viewPager.offscreenPageLimit = 2
         TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, pos ->
-            tab.text = when (pos) { 0 -> "Dashboard"; 1 -> "NMEA Out"; else -> "Serial Console" }
+            tab.text = when (pos) {
+                0 -> "Dashboard"
+                1 -> "NMEA Out"
+                2 -> "Serial Console"
+                3 -> "Files"
+                else -> "WiGLE"
+            }
         }.attach()
     }
 

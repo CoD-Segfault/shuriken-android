@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@color/background">
+
+    <TextView
+        android:id="@+id/tvMtpStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/on_surface"
+        android:accessibilityLiveRegion="polite"
+        android:text="Connect to Shuriken to read SD files." />
+
+    <Button
+        android:id="@+id/btnRefreshFiles"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:enabled="false"
+        android:text="Refresh files" />
+
+    <TextView
+        android:id="@+id/tvFilesUploadStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/on_surface"
+        android:accessibilityLiveRegion="polite" />
+
+    <CheckBox
+        android:id="@+id/cbShowUploaded"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:saveEnabled="false"
+        android:checked="false"
+        android:text="Show uploaded files"
+        android:textColor="@color/on_surface" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Button
+            android:id="@+id/btnSelectAllFiles"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Select all" />
+        <Button
+            android:id="@+id/btnClearFileSelection"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Clear selection" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/btnUploadSelectedFiles"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:enabled="false"
+        android:text="Upload selected (0)" />
+
+    <Button
+        android:id="@+id/btnCancelFileUpload"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Cancel upload"
+        android:visibility="gone" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/on_surface_variant"
+        android:text="Read-only SD root. Downloads may temporarily delay SD logging. Failed downloads may leave a partial destination file."
+        android:textSize="12sp" />
+
+    <ProgressBar
+        android:id="@+id/mtpProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/fileList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingTop="8dp" />
+</LinearLayout>

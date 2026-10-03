@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/on_surface"
+            android:text="Log in at wigle.net/activate on another screen, then scan its QR. Credentials stay encrypted on this device." />
+
+        <Button
+            android:id="@+id/btnActivateWigle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Open activation page" />
+
+        <Button
+            android:id="@+id/btnScanWigle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Scan activation QR" />
+
+        <TextView
+            android:id="@+id/tvWigleAccount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/on_surface"
+            android:text="No WiGLE credentials saved" />
+
+        <Button
+            android:id="@+id/btnForgetWigle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Remove credentials" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textColor="@color/on_surface_variant"
+            android:text="First save a CSV through the Files tab, then select that saved file here. Uploads send the whole log, including network identifiers and locations, to WiGLE. No files are uploaded automatically. Keep the app open until the upload finishes." />
+
+        <Button
+            android:id="@+id/btnChooseWigleFile"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Choose CSV logs" />
+
+        <TextView
+            android:id="@+id/tvWigleFile"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/on_surface"
+            android:text="No CSV selected" />
+
+        <Button
+            android:id="@+id/btnUploadWigle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="Upload to WiGLE" />
+
+        <Button
+            android:id="@+id/btnCancelWigle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:text="Cancel upload" />
+
+        <ProgressBar
+            android:id="@+id/wigleProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvWigleStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
+            android:textColor="@color/on_surface"
+            android:text="Scan the activation QR from wigle.net/activate." />
+    </LinearLayout>
+</ScrollView>

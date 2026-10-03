@@ -8,12 +8,15 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
+import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import lt.gfau.se.shuriken.model.LocationData
 import lt.gfau.se.shuriken.model.SerialDevicePort
+import lt.gfau.se.shuriken.mtp.MtpFile
+import lt.gfau.se.shuriken.mtp.MtpState
 import lt.gfau.se.shuriken.service.NmeaService
 import lt.gfau.se.shuriken.serial.UsbSerialManager
 import kotlinx.coroutines.channels.BufferOverflow
@@ -70,6 +73,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _txCount = MutableStateFlow(0L)
     val txCount: StateFlow<Long> = _txCount.asStateFlow()
 
+    private val _mtpState = MutableStateFlow(MtpState())
+    val mtpState: StateFlow<MtpState> = _mtpState.asStateFlow()
+
     private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 16)
     val events: SharedFlow<Event> = _events.asSharedFlow()
 
@@ -95,6 +101,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         override fun onServiceDisconnected(name: ComponentName?) {
             nmeaService = null
+            _mtpState.value = MtpState()
             isBound = false
             Log.d("MainViewModel", "Service disconnected")
         }
@@ -114,6 +121,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun observeService(service: NmeaService) {
         viewModelScope.launch {
+            launch { service.mtpFileManager.state.collect { _mtpState.value = it } }
             launch { service.locationProvider.locationData.collect { _locationData.value = it } }
             launch { service.locationProvider.sourceLabel.collect { _locationSource.value = it } }
             launch { 
@@ -240,6 +248,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearNmeaLog() { _nmeaLog.value = emptyList() }
+    fun refreshMtpFiles() { nmeaService?.mtpFileManager?.refresh() }
+    suspend fun downloadMtpFile(file: MtpFile, destination: java.io.File) {
+        val manager = nmeaService?.mtpFileManager ?: error("Connect to Shuriken first.")
+        manager.download(file, destination)
+    }
+    fun saveMtpFile(file: MtpFile, destination: Uri) {
+        nmeaService?.mtpFileManager?.save(file, destination)
+    }
     fun clearSerialInputLog() { _serialInputLog.value = emptyList() }
 
     override fun onCleared() {

@@ -28,7 +28,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
-class UsbSerialManager(private val context: Context) {
+class UsbSerialManager(
+    private val context: Context,
+    private val onConnectedDeviceChanged: (UsbDevice?) -> Unit = {}
+) {
 
     companion object {
         private const val ACTION_USB_PERMISSION = "lt.gfau.se.shuriken.USB_PERMISSION"
@@ -215,6 +218,7 @@ class UsbSerialManager(private val context: Context) {
             // drained as well as NMEA being writable.
             _connectionState.value = ConnectionState.CONNECTED
             _connectedPortLabel.value = driver.device.deviceName
+            onConnectedDeviceChanged(driver.device)
             onResult?.invoke(true)
         } catch (e: Exception) {
             Log.e(TAG, "Exception during port opening", e)
@@ -226,6 +230,7 @@ class UsbSerialManager(private val context: Context) {
 
     fun disconnect() {
         sessionGeneration++
+        onConnectedDeviceChanged(null)
         // Invalidate callbacks before closing requests; close can wake readers
         // with errors that must not tear down a subsequent connection.
         val ports = activePorts.values.toList()
