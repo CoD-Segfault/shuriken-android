@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -80,46 +81,92 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val events: SharedFlow<Event> = _events.asSharedFlow()
 
     private var nmeaService: NmeaService? = null
-    private var isBound = false
     private var autoConnectPending = false
 
     private val nmeaUpdateChannel = Channel<String>(capacity = 100, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val serialUpdateChannel = Channel<String>(capacity = 100, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
-    private val serviceConnection = object : ServiceConnection {
+    private val serviceConnection: ServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as NmeaService.LocalBinder
+            val binder = service as? NmeaService.LocalBinder
+            if (binder == null) {
+                bindingSession.release()
+                clearServiceState()
+                return
+            }
             val s = binder.getService()
-            nmeaService = s
-            isBound = true
+            if (!bindingSession.connected {
+                clearServiceState()
+                nmeaService = s
+                observeService(s)
+            }) return
             Log.d("MainViewModel", "Service connected")
-            observeService(s)
             
             s.usbSerialManager.enumerateDevices()
             checkAutoConnect()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            nmeaService = null
-            _mtpState.value = MtpState()
-            isBound = false
+            bindingSession.disconnected()
+            clearServiceState()
             Log.d("MainViewModel", "Service disconnected")
+        }
+
+        override fun onBindingDied(name: ComponentName?) {
+            bindingSession.release()
+            clearServiceState()
+            bindService()
+        }
+
+        override fun onNullBinding(name: ComponentName?) {
+            bindingSession.release()
+            clearServiceState()
+            Log.w("MainViewModel", "Service returned a null binding")
         }
     }
 
     private val intent = Intent(application, NmeaService::class.java)
+    private val bindingSession: ServiceBindingSession = ServiceBindingSession(
+        bind = { application.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE) },
+        unbind = {
+            try {
+                application.unbindService(serviceConnection)
+            } catch (e: IllegalArgumentException) {
+                // A rejected/throwing bind may not have registered with Android.
+                Log.w("MainViewModel", "Service binding was already released", e)
+            }
+        }
+    )
 
     init {
         startLogProcessors()
     }
 
     fun bindService() {
-        if (!isBound) {
-            getApplication<Application>().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        try {
+            if (!bindingSession.requestBinding()) clearServiceState()
+        } catch (e: Exception) {
+            clearServiceState()
+            Log.e("MainViewModel", "Could not bind NMEA service", e)
         }
     }
 
-    private fun observeService(service: NmeaService) {
+    private fun clearServiceState() {
+        nmeaService = null
+        _mtpState.value = MtpState()
+        _connectionState.value = UsbSerialManager.ConnectionState.DISCONNECTED
+        _isTransmitting.value = false
+        _locationData.value = null
+        _locationSource.value = "none"
+        _availablePorts.value = emptyList()
+        _connectedPortLabel.value = ""
+        _consoleBytesReceived.value = 0
+        while (nmeaUpdateChannel.tryReceive().isSuccess) { }
+        while (serialUpdateChannel.tryReceive().isSuccess) { }
+        // Retain displayed log history, but discard any pending old-session chunks.
+    }
+
+    private fun observeService(service: NmeaService): Job =
         viewModelScope.launch {
             launch { service.mtpFileManager.state.collect { _mtpState.value = it } }
             launch { service.locationProvider.locationData.collect { _locationData.value = it } }
@@ -151,7 +198,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
-    }
 
     private fun startLogProcessors() {
         viewModelScope.launch {
@@ -204,7 +250,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun checkAutoConnect() {
-        if (autoConnectPending && isBound) {
+        if (autoConnectPending && bindingSession.isConnected) {
             val ports = _availablePorts.value
             if (ports.size == 1) {
                 connectToPort(ports[0])
@@ -217,11 +263,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshDevices() {
+        bindService()
         nmeaService?.usbSerialManager?.enumerateDevices()
     }
 
     fun connectToPort(port: SerialDevicePort) {
-        nmeaService?.usbSerialManager?.connect(port) { success ->
+        val service = nmeaService ?: return
+        service.usbSerialManager.connect(port) { success ->
+            if (nmeaService !== service || !bindingSession.isConnected) return@connect
             if (success) {
                 val app = getApplication<Application>()
                 val hasFineLocation = ContextCompat.checkSelfPermission(
@@ -231,7 +280,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (hasFineLocation) {
                     app.startForegroundService(intent)
-                    nmeaService?.startConnectedSession()
+                    service.startConnectedSession()
                     _isTransmitting.value = true
                 } else {
                     Log.w("MainViewModel", "USB connected without location permission; session not started")
@@ -259,10 +308,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearSerialInputLog() { _serialInputLog.value = emptyList() }
 
     override fun onCleared() {
+        bindingSession.close()
+        clearServiceState()
         super.onCleared()
-        if (isBound) {
-            getApplication<Application>().unbindService(serviceConnection)
-            isBound = false
-        }
     }
 }
