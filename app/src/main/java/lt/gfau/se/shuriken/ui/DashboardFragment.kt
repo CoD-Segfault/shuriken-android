@@ -94,7 +94,7 @@ class DashboardFragment : Fragment() {
     }
 
     private fun updateTransmitBadge(binding: FragmentDashboardBinding, transmitting: Boolean) {
-        binding.tvTransmitStatus.text = if (transmitting) "● TX 5Hz" else "○ idle"
+        binding.tvTransmitStatus.text = if (transmitting) "● TX active" else "○ idle"
         binding.tvTransmitStatus.setTextColor(
             resources.getColor(
                 if (transmitting) R.color.green_fix else R.color.on_surface_variant,

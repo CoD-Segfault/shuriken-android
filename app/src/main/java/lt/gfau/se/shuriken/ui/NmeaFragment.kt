@@ -50,7 +50,7 @@ class NmeaFragment : Fragment() {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.isTransmitting.collect { tx ->
                     _binding?.let { b ->
-                        b.tvNmeaRate.text = if (tx) "NMEA Output  ●  5 Hz" else "NMEA Output  ○  stopped"
+                        b.tvNmeaRate.text = if (tx) "NMEA Output  ●  active" else "NMEA Output  ○  idle"
                     }
                 }
             }
